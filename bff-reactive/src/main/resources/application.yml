@@ -1,0 +1,23 @@
+server:
+  port: 8080
+
+spring:
+  codec:
+    max-in-memory-size: 1MB
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, prometheus, metrics
+  metrics:
+    tags:
+      application: bff-reactive
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    root: INFO
+    org.wagnercaetano: INFO

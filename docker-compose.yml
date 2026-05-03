@@ -1,0 +1,189 @@
+services:
+  # ============================================================
+  # Infrastructure Services (always running)
+  # ============================================================
+
+  mock-backend:
+    build:
+      context: ./mock-backend
+      dockerfile: Dockerfile
+    container_name: mock-backend
+    ports:
+      - "8081:8081"
+    networks:
+      - bff-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - bff-net
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=3h'
+      - '--web.enable-lifecycle'
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - bff-net
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+
+  # ============================================================
+  # System Under Test (SUT) - Only ONE runs at a time via profiles
+  # ============================================================
+
+  bff-blocking:
+    build:
+      context: ./bff-blocking
+      dockerfile: Dockerfile
+    container_name: bff-blocking
+    profiles:
+      - blocking
+    ports:
+      - "8080:8080"
+    networks:
+      - bff-net
+    environment:
+      - JAVA_OPTS=-XX:+UseParallelGC -XX:NewRatio=1 -XX:SurvivorRatio=6 -Xms1536m -Xmx1536m -Xlog:gc*:file=/results/gc.log:time,uptime,level,tags:filecount=5,filesize=10m
+    volumes:
+      - ./results:/results
+    depends_on:
+      mock-backend:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+
+  bff-reactive:
+    build:
+      context: ./bff-reactive
+      dockerfile: Dockerfile
+    container_name: bff-reactive
+    profiles:
+      - reactive
+    ports:
+      - "8080:8080"
+    networks:
+      - bff-net
+    environment:
+      - JAVA_OPTS=-XX:+UseParallelGC -XX:NewRatio=1 -XX:SurvivorRatio=6 -Xms1536m -Xmx1536m -Xlog:gc*:file=/results/gc.log:time,uptime,level,tags:filecount=5,filesize=10m
+    volumes:
+      - ./results:/results
+    depends_on:
+      mock-backend:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+
+  bff-golang:
+    build:
+      context: ./bff-golang
+      dockerfile: Dockerfile
+    container_name: bff-golang
+    profiles:
+      - golang
+    ports:
+      - "8080:8080"
+    networks:
+      - bff-net
+    environment:
+      - GOMAXPROCS=2
+    depends_on:
+      mock-backend:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  # ============================================================
+  # k6 Load Generator - Run via: docker compose run --rm k6
+  # ============================================================
+
+  k6:
+    image: grafana/k6:latest
+    container_name: k6
+    networks:
+      - bff-net
+    volumes:
+      - ./k6:/k6:ro
+      - ./results:/results
+    environment:
+      - BASE_URL=http://bff-blocking:8080
+    entrypoint: ["k6"]
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+
+networks:
+  bff-net:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+  grafana-data:

@@ -1,0 +1,329 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "title": "HTTP Latency & Throughput",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 0 },
+      "collapsed": false
+    },
+    {
+      "title": "HTTP Request Latency (percentiles)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 1 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 },
+          "color": { "mode": "palette-classic" }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(http_server_requests_seconds_bucket{application=\"$application\",uri=\"/api/data\"}[30s])) by (le)) * 1000", "legendFormat": "p50", "refId": "A" },
+        { "expr": "histogram_quantile(0.90, sum(rate(http_server_requests_seconds_bucket{application=\"$application\",uri=\"/api/data\"}[30s])) by (le)) * 1000", "legendFormat": "p90", "refId": "B" },
+        { "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{application=\"$application\",uri=\"/api/data\"}[30s])) by (le)) * 1000", "legendFormat": "p95", "refId": "C" },
+        { "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{application=\"$application\",uri=\"/api/data\"}[30s])) by (le)) * 1000", "legendFormat": "p99", "refId": "D" }
+      ],
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" }, "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["avg", "max", "lastNotNull"] } }
+    },
+    {
+      "title": "HTTP Requests/sec (throughput)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 1 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 20 }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "expr": "sum(rate(http_server_requests_seconds_count{application=\"$application\",uri=\"/api/data\"}[30s]))", "legendFormat": "req/s", "refId": "A" }
+      ],
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" }, "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["avg", "max", "lastNotNull"] } }
+    },
+
+    {
+      "title": "CPU & Memory",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
+      "collapsed": false
+    },
+    {
+      "title": "Process CPU Usage",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 10 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.5 },
+              { "color": "red", "value": 0.8 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "expr": "process_cpu_usage{application=\"$application\"}", "legendFormat": "CPU", "refId": "A" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] } }
+    },
+    {
+      "title": "JVM Heap Memory Used by Pool",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 10, "x": 6, "y": 10 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10, "stacking": { "mode": "normal" } }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "expr": "jvm_memory_used_bytes{application=\"$application\",area=\"heap\",id=\"PS Eden Space\"}", "legendFormat": "Eden Space", "refId": "A" },
+        { "expr": "jvm_memory_used_bytes{application=\"$application\",area=\"heap\",id=\"PS Survivor Space\"}", "legendFormat": "Survivor Space", "refId": "B" },
+        { "expr": "jvm_memory_used_bytes{application=\"$application\",area=\"heap\",id=\"PS Old Gen\"}", "legendFormat": "Old Gen", "refId": "C" },
+        { "expr": "jvm_memory_used_bytes{application=\"$application\",area=\"heap\",id=\"G1 Eden Space\"}", "legendFormat": "G1 Eden", "refId": "D" },
+        { "expr": "jvm_memory_used_bytes{application=\"$application\",area=\"heap\",id=\"G1 Survivor Space\"}", "legendFormat": "G1 Survivor", "refId": "E" },
+        { "expr": "jvm_memory_used_bytes{application=\"$application\",area=\"heap\",id=\"G1 Old Gen\"}", "legendFormat": "G1 Old Gen", "refId": "F" },
+        { "expr": "jvm_memory_used_bytes{application=\"$application\",area=\"heap\",id=\"ZHeap\"}", "legendFormat": "ZHeap", "refId": "G" }
+      ],
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" }, "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["avg", "max", "lastNotNull"] } }
+    },
+    {
+      "title": "JVM Non-Heap Memory",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 10 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "expr": "jvm_memory_used_bytes{application=\"$application\",area=\"nonheap\",id=\"Metaspace\"}", "legendFormat": "Metaspace", "refId": "A" },
+        { "expr": "jvm_memory_used_bytes{application=\"$application\",area=\"nonheap\",id=\"Compressed Class Space\"}", "legendFormat": "Compressed Class Space", "refId": "B" },
+        { "expr": "jvm_memory_used_bytes{application=\"$application\",area=\"nonheap\",id=\"CodeHeap 'profiled nmethods'\"}", "legendFormat": "CodeHeap profiled", "refId": "C" },
+        { "expr": "jvm_memory_used_bytes{application=\"$application\",area=\"nonheap\",id=\"CodeHeap 'non-profiled nmethods'\"}", "legendFormat": "CodeHeap non-profiled", "refId": "D" }
+      ],
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" }, "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["avg", "max", "lastNotNull"] } }
+    },
+
+    {
+      "title": "GC Analysis",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 18 },
+      "collapsed": false
+    },
+    {
+      "title": "GC Pause Time (avg per second)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 19 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": { "drawStyle": "bars", "lineWidth": 1, "fillOpacity": 80 }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "expr": "rate(jvm_gc_pause_seconds_sum{application=\"$application\",action=\"end of minor GC\"}[30s]) * 1000", "legendFormat": "Young GC pause/s", "refId": "A" },
+        { "expr": "rate(jvm_gc_pause_seconds_sum{application=\"$application\",action=\"end of major GC\"}[30s]) * 1000", "legendFormat": "Full GC pause/s", "refId": "B" }
+      ],
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" }, "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["sum", "max"] } }
+    },
+    {
+      "title": "GC Count Rate (events/sec)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 19 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "expr": "rate(jvm_gc_pause_seconds_count{application=\"$application\",action=\"end of minor GC\"}[30s])", "legendFormat": "Young GC/s", "refId": "A" },
+        { "expr": "rate(jvm_gc_pause_seconds_count{application=\"$application\",action=\"end of major GC\"}[30s])", "legendFormat": "Full GC/s", "refId": "B" }
+      ],
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" }, "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["avg", "max", "sum"] } }
+    },
+    {
+      "title": "Allocation Rate (Eden)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 27 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "expr": "rate(jvm_gc_memory_allocated_bytes_total{application=\"$application\"}[30s])", "legendFormat": "Allocated/s", "refId": "A" }
+      ],
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" }, "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["avg", "max"] } }
+    },
+    {
+      "title": "Promotion Rate (Old Gen)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 27 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "expr": "rate(jvm_gc_memory_promoted_bytes_total{application=\"$application\"}[30s])", "legendFormat": "Promoted/s", "refId": "A" }
+      ],
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" }, "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["avg", "max"] } }
+    },
+
+    {
+      "title": "Memory Pool Details",
+      "type": "row",
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 35 },
+      "collapsed": false
+    },
+    {
+      "title": "Eden Space (Used vs Max)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 36 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 20 }
+        },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": ".*max.*" }, "properties": [{ "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } }, { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] }
+        ]
+      },
+      "targets": [
+        { "expr": "jvm_memory_used_bytes{application=\"$application\",id=~\"PS Eden Space|G1 Eden Space\"}", "legendFormat": "Eden used", "refId": "A" },
+        { "expr": "jvm_memory_max_bytes{application=\"$application\",id=~\"PS Eden Space|G1 Eden Space\"}", "legendFormat": "Eden max", "refId": "B" }
+      ],
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" }, "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["avg", "max", "lastNotNull"] } }
+    },
+    {
+      "title": "Survivor Space (Used vs Max)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 36 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 20 }
+        },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": ".*max.*" }, "properties": [{ "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } }, { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] }
+        ]
+      },
+      "targets": [
+        { "expr": "jvm_memory_used_bytes{application=\"$application\",id=~\"PS Survivor Space|G1 Survivor Space\"}", "legendFormat": "Survivor used", "refId": "A" },
+        { "expr": "jvm_memory_max_bytes{application=\"$application\",id=~\"PS Survivor Space|G1 Survivor Space\"}", "legendFormat": "Survivor max", "refId": "B" }
+      ],
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" }, "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["avg", "max", "lastNotNull"] } }
+    },
+    {
+      "title": "Old Gen (Used vs Max)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 36 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 20 }
+        },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": ".*max.*" }, "properties": [{ "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } }, { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] }
+        ]
+      },
+      "targets": [
+        { "expr": "jvm_memory_used_bytes{application=\"$application\",id=~\"PS Old Gen|G1 Old Gen|ZHeap\"}", "legendFormat": "Old Gen used", "refId": "A" },
+        { "expr": "jvm_memory_max_bytes{application=\"$application\",id=~\"PS Old Gen|G1 Old Gen|ZHeap\"}", "legendFormat": "Old Gen max", "refId": "B" }
+      ],
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" }, "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["avg", "max", "lastNotNull"] } }
+    },
+
+    {
+      "title": "Thread Count",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 44 },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "expr": "jvm_threads_live_threads{application=\"$application\"}", "legendFormat": "Live threads", "refId": "A" },
+        { "expr": "jvm_threads_daemon_threads{application=\"$application\"}", "legendFormat": "Daemon threads", "refId": "B" }
+      ],
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" }, "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["avg", "max", "lastNotNull"] } }
+    },
+    {
+      "title": "Total Heap Used vs Max",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 44 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 20 }
+        },
+        "overrides": [
+          { "matcher": { "id": "byRegexp", "options": ".*max.*" }, "properties": [{ "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } }, { "id": "color", "value": { "fixedColor": "red", "mode": "fixed" } }] }
+        ]
+      },
+      "targets": [
+        { "expr": "sum(jvm_memory_used_bytes{application=\"$application\",area=\"heap\"})", "legendFormat": "Heap used", "refId": "A" },
+        { "expr": "sum(jvm_memory_max_bytes{application=\"$application\",area=\"heap\"})", "legendFormat": "Heap max", "refId": "B" }
+      ],
+      "options": { "tooltip": { "mode": "multi", "sort": "desc" }, "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["avg", "max", "lastNotNull"] } }
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "tags": ["bff", "jvm-tuning"],
+  "templating": {
+    "list": [
+      {
+        "current": { "selected": false, "text": "bff-blocking", "value": "bff-blocking" },
+        "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+        "definition": "label_values(application)",
+        "hide": 0,
+        "includeAll": false,
+        "label": "Application",
+        "multi": false,
+        "name": "application",
+        "options": [],
+        "query": "label_values(application)",
+        "refresh": 2,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": { "from": "now-15m", "to": "now" },
+  "timepicker": {},
+  "timezone": "",
+  "title": "BFF JVM Tuning - Comprehensive",
+  "uid": "bff-jvm-comprehensive",
+  "version": 1
+}

@@ -1,0 +1,23 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+  scrape_timeout: 3s
+
+scrape_configs:
+  # BFF Blocking (Undertow + RestClient)
+  - job_name: 'bff-blocking'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['bff-blocking:8080']
+
+  # BFF Reactive (Netty + WebClient)
+  - job_name: 'bff-reactive'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['bff-reactive:8080']
+
+  # BFF Golang
+  - job_name: 'bff-golang'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['bff-golang:8080']
