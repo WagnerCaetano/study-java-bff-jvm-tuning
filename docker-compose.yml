@@ -83,7 +83,7 @@ services:
     networks:
       - bff-net
     environment:
-      - JAVA_OPTS=-XX:+UseParallelGC -XX:NewRatio=1 -XX:SurvivorRatio=6 -Xms1536m -Xmx1536m -Xlog:gc*:file=/results/gc.log:time,uptime,level,tags:filecount=5,filesize=10m
+      - JAVA_OPTS=-XX:+UseParallelGC -Xms1536m -Xmx1536m -Xlog:gc*:file=/results/gc.log:time,uptime,level,tags:filecount=5,filesize=10m
     volumes:
       - ./results:/results
     depends_on:
@@ -113,7 +113,7 @@ services:
     networks:
       - bff-net
     environment:
-      - JAVA_OPTS=-XX:+UseParallelGC -XX:NewRatio=1 -XX:SurvivorRatio=6 -Xms1536m -Xmx1536m -Xlog:gc*:file=/results/gc.log:time,uptime,level,tags:filecount=5,filesize=10m
+      - JAVA_OPTS=-XX:+UseParallelGC -Xms1536m -Xmx1536m -Xlog:gc*:file=/results/gc.log:time,uptime,level,tags:filecount=5,filesize=10m
     volumes:
       - ./results:/results
     depends_on:

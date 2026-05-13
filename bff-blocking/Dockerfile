@@ -26,7 +26,8 @@ EXPOSE 8080
 # GC logs are written to /results/ which is mounted as a volume
 ENV JAVA_OPTS="-XX:+UseParallelGC \
   -XX:NewRatio=1 \
-  -XX:SurvivorRatio=6 \
+  -XX:SurvivorRatio=4 \
+  -XX:-UseAdaptiveSizePolicy \
   -Xms1536m \
   -Xmx1536m \
   -Xlog:gc*:file=/results/gc.log:time,uptime,level,tags:filecount=5,filesize=10m"

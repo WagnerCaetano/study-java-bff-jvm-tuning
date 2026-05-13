@@ -48,10 +48,9 @@ All services run on a shared Docker bridge network (`bff-net`). k6 accesses the 
 ├── prometheus/
 │   └── prometheus.yml      # Scrape config (5s interval)
 ├── grafana/
-│   └── provisioning/       # Auto-configured datasource + 2 dashboards
+│   └── provisioning/       # Auto-configured datasource + unified dashboard
 │       └── dashboards/
-│           ├── bff-overview.json        # Original 9-panel dashboard
-│           └── bff-comprehensive.json   # Comprehensive 16-panel dashboard
+│           └── bff-comprehensive.json   # Unified 22-panel dashboard (6 rows)
 ├── docker-compose.yml      # Full orchestration with profiles
 ├── results/                # k6 output + GC logs + summaries (mounted volume)
 └── plans/
@@ -118,7 +117,7 @@ k6 runs as a one-off container via `docker compose run --rm`. It connects to the
 
 ```bash
 # General pattern:
-docker compose run --rm -e BASE_URL=http://<sut-service>:8080 -e SCENARIO_NAME=<name> k6 run --out json=/results/<output>.json /k6/stress-test.js
+docker compose run --rm -e BASE_URL=http://<sut-service>:8080 -e SCENARIO_NAME=<name> k6 run --out json=//results/<output>.json //k6/stress-test.js
 ```
 
 The `--rm` flag removes the k6 container after the test. The `SCENARIO_NAME` env var sets the summary file name.
@@ -127,92 +126,135 @@ The `--rm` flag removes the k6 container after the test. The `SCENARIO_NAME` env
 
 | # | SUT | GC Strategy | Profile | BASE_URL | SCENARIO_NAME |
 |---|-----|-------------|---------|----------|---------------|
-| 1 | BFF-Blocking (Undertow) | ParallelGC tuned | `blocking` | `http://bff-blocking:8080` | `blocking-parallelgc` |
-| 2 | BFF-Blocking (Undertow) | Generational ZGC | `blocking` | `http://bff-blocking:8080` | `blocking-zgc` |
-| 3 | BFF-Reactive (Netty) | ParallelGC tuned | `reactive` | `http://bff-reactive:8080` | `reactive-parallelgc` |
-| 4 | BFF-Reactive (Netty) | Generational ZGC | `reactive` | `http://bff-reactive:8080` | `reactive-zgc` |
-| 5 | BFF-Golang | Go runtime GC | `golang` | `http://bff-golang:8080` | `golang` |
+| 1 | BFF-Blocking (Undertow) | ParallelGC **default** (no tuning) | `blocking` | `http://bff-blocking:8080` | `blocking-parallelgc-default` |
+| 2 | BFF-Blocking (Undertow) | ParallelGC **production-tuned** | `blocking` | `http://bff-blocking:8080` | `blocking-parallelgc-tuned` |
+| 3 | BFF-Blocking (Undertow) | Generational ZGC | `blocking` | `http://bff-blocking:8080` | `blocking-zgc` |
+| 4 | BFF-Reactive (Netty) | ParallelGC **default** (no tuning) | `reactive` | `http://bff-reactive:8080` | `reactive-parallelgc-default` |
+| 5 | BFF-Reactive (Netty) | ParallelGC **production-tuned** | `reactive` | `http://bff-reactive:8080` | `reactive-parallelgc-tuned` |
+| 6 | BFF-Reactive (Netty) | Generational ZGC | `reactive` | `http://bff-reactive:8080` | `reactive-zgc` |
+| 7 | BFF-Golang | Go runtime GC | `golang` | `http://bff-golang:8080` | `golang` |
+
+> **Scenarios 1 vs 2** (and 4 vs 5) demonstrate the real-world impact of GC tuning — from default ParallelGC behavior to production-hardened parameters that halved response time in production.
 
 ---
 
-### Scenario 1: BFF-Blocking + ParallelGC (Tuned)
+### Scenario 1: BFF-Blocking + ParallelGC (Default — No Tuning)
+
+This is the baseline — ParallelGC with only fixed heap size, letting the JVM use all defaults (adaptive sizing, default generation ratios).
 
 ```bash
-# Start the SUT with ParallelGC flags
+# Start the SUT with default ParallelGC (no tuning)
 docker compose --profile blocking up -d bff-blocking
 
 # Wait for it to be healthy
 docker compose ps
 
 # Run k6 stress test (10 minutes)
-docker compose run --rm -e BASE_URL=http://bff-blocking:8080 -e SCENARIO_NAME=blocking-parallelgc k6 run --out json=/results/blocking-parallelgc.json /k6/stress-test.js
+docker compose run --rm -e BASE_URL=http://bff-blocking:8080 -e SCENARIO_NAME=blocking-parallelgc-default k6 run --out json=//results/blocking-parallelgc-default.json //k6/stress-test.js
 
 # Rename the GC log before the next test
-move results\gc.log results\gc-blocking-parallelgc.log
+move results\gc.log results\gc-blocking-parallelgc-default.log
 
-# Stop the SUT
-docker compose --profile blocking down
+# Stop ONLY the SUT (keeps mock-backend, prometheus, grafana running)
+docker compose stop bff-blocking && docker compose rm -f bff-blocking
 ```
 
 **GC logs** are automatically saved to `results/gc.log` via the mounted volume.
 
+> ⚠️ **Do NOT use `docker compose --profile blocking down`** — it stops ALL containers including infrastructure. Use `docker compose stop <service>` to stop only the SUT.
+
 ---
 
-### Scenario 2: BFF-Blocking + Generational ZGC
+### Scenario 2: BFF-Blocking + ParallelGC (Production-Tuned)
+
+These parameters were derived from real production GC tuning iterations. They fix the young generation size, disable adaptive sizing, and tune survivor ratios to prevent the JVM from shrinking Eden based on throughput goals.
 
 ```bash
-docker compose --profile blocking down
+# Stop previous SUT if running
+docker compose stop bff-blocking && docker compose rm -f bff-blocking
+
+# Start with production-tuned ParallelGC flags
+docker compose --profile blocking up -d bff-blocking -e "JAVA_OPTS=-XX:+UseParallelGC -XX:MaxGCPauseMillis=200 -XX:GCTimeRatio=9 -XX:SurvivorRatio=4 -XX:ParallelGCThreads=2 -XX:NewSize=650m -XX:MaxNewSize=750m -XX:-UseAdaptiveSizePolicy -XX:MaxHeapFreeRatio=100 -Xms1536m -Xmx1536m -Xlog:gc*:file=/results/gc.log:time,uptime,level,tags:filecount=5,filesize=10m"
+
+docker compose ps
+
+docker compose run --rm -e BASE_URL=http://bff-blocking:8080 -e SCENARIO_NAME=blocking-parallelgc-tuned k6 run --out json=//results/blocking-parallelgc-tuned.json //k6/stress-test.js
+
+move results\gc.log results\gc-blocking-parallelgc-tuned.log
+docker compose stop bff-blocking && docker compose rm -f bff-blocking
+```
+
+---
+
+### Scenario 3: BFF-Blocking + Generational ZGC
+
+```bash
+docker compose stop bff-blocking && docker compose rm -f bff-blocking
 
 # Start with ZGC flags by overriding JAVA_OPTS
 docker compose --profile blocking up -d bff-blocking -e "JAVA_OPTS=-XX:+UseZGC -XX:+ZGenerational -Xms1536m -Xmx1536m -Xlog:gc*:file=/results/gc.log:time,uptime,level,tags:filecount=5,filesize=10m"
 
 docker compose ps
 
-docker compose run --rm -e BASE_URL=http://bff-blocking:8080 -e SCENARIO_NAME=blocking-zgc k6 run --out json=/results/blocking-zgc.json /k6/stress-test.js
+docker compose run --rm -e BASE_URL=http://bff-blocking:8080 -e SCENARIO_NAME=blocking-zgc k6 run --out json=//results/blocking-zgc.json //k6/stress-test.js
 
 move results\gc.log results\gc-blocking-zgc.log
-docker compose --profile blocking down
+docker compose stop bff-blocking && docker compose rm -f bff-blocking
 ```
 
 ---
 
-### Scenario 3: BFF-Reactive + ParallelGC (Tuned)
+### Scenario 4: BFF-Reactive + ParallelGC (Default — No Tuning)
 
 ```bash
 docker compose --profile reactive up -d bff-reactive
 docker compose ps
 
-docker compose run --rm -e BASE_URL=http://bff-reactive:8080 -e SCENARIO_NAME=reactive-parallelgc k6 run --out json=/results/reactive-parallelgc.json /k6/stress-test.js
+docker compose run --rm -e BASE_URL=http://bff-reactive:8080 -e SCENARIO_NAME=reactive-parallelgc-default k6 run --out json=//results/reactive-parallelgc-default.json //k6/stress-test.js
 
-move results\gc.log results\gc-reactive-parallelgc.log
-docker compose --profile reactive down
+move results\gc.log results\gc-reactive-parallelgc-default.log
+docker compose stop bff-reactive && docker compose rm -f bff-reactive
 ```
 
 ---
 
-### Scenario 4: BFF-Reactive + Generational ZGC
+### Scenario 5: BFF-Reactive + ParallelGC (Production-Tuned)
+
+```bash
+docker compose --profile reactive up -d bff-reactive -e "JAVA_OPTS=-XX:+UseParallelGC -XX:MaxGCPauseMillis=200 -XX:GCTimeRatio=9 -XX:SurvivorRatio=4 -XX:ParallelGCThreads=2 -XX:NewSize=650m -XX:MaxNewSize=750m -XX:-UseAdaptiveSizePolicy -XX:MaxHeapFreeRatio=100 -Xms1536m -Xmx1536m -Xlog:gc*:file=/results/gc.log:time,uptime,level,tags:filecount=5,filesize=10m"
+docker compose ps
+
+docker compose run --rm -e BASE_URL=http://bff-reactive:8080 -e SCENARIO_NAME=reactive-parallelgc-tuned k6 run --out json=//results/reactive-parallelgc-tuned.json //k6/stress-test.js
+
+move results\gc.log results\gc-reactive-parallelgc-tuned.log
+docker compose stop bff-reactive && docker compose rm -f bff-reactive
+```
+
+---
+
+### Scenario 6: BFF-Reactive + Generational ZGC
 
 ```bash
 docker compose --profile reactive up -d bff-reactive -e "JAVA_OPTS=-XX:+UseZGC -XX:+ZGenerational -Xms1536m -Xmx1536m -Xlog:gc*:file=/results/gc.log:time,uptime,level,tags:filecount=5,filesize=10m"
 docker compose ps
 
-docker compose run --rm -e BASE_URL=http://bff-reactive:8080 -e SCENARIO_NAME=reactive-zgc k6 run --out json=/results/reactive-zgc.json /k6/stress-test.js
+docker compose run --rm -e BASE_URL=http://bff-reactive:8080 -e SCENARIO_NAME=reactive-zgc k6 run --out json=//results/reactive-zgc.json //k6/stress-test.js
 
 move results\gc.log results\gc-reactive-zgc.log
-docker compose --profile reactive down
+docker compose stop bff-reactive && docker compose rm -f bff-reactive
 ```
 
 ---
 
-### Scenario 5: BFF-Golang
+### Scenario 7: BFF-Golang
 
 ```bash
 docker compose --profile golang up -d bff-golang
 docker compose ps
 
-docker compose run --rm -e BASE_URL=http://bff-golang:8080 -e SCENARIO_NAME=golang k6 run --out json=/results/golang.json /k6/stress-test.js
+docker compose run --rm -e BASE_URL=http://bff-golang:8080 -e SCENARIO_NAME=golang k6 run --out json=//results/golang.json //k6/stress-test.js
 
-docker compose --profile golang down
+docker compose stop bff-golang && docker compose rm -f bff-golang
 ```
 
 ---
@@ -228,7 +270,7 @@ Each k6 run automatically generates a compact summary JSON at `results/summary-<
 For a more detailed analysis including request timing breakdown:
 
 ```bash
-python k6/analyze-k6.py results/blocking-parallelgc.json
+python k6/analyze-k6.py results/blocking-parallelgc-default.json
 ```
 
 Output includes:
@@ -242,7 +284,7 @@ Saves a compact JSON to `results/summary-<name>.json`.
 
 ### Comparing Scenarios
 
-After running all 5 scenarios, compare the summary files:
+After running all 7 scenarios, compare the summary files:
 
 ```powershell
 # View all summaries side by side
@@ -259,12 +301,10 @@ Get-ChildItem results\summary-*.json | ForEach-Object {
 
 ## JVM Flags Reference
 
-### Scenario A: ParallelGC (Tuned)
+### Scenario A: ParallelGC (Default — No Tuning)
 
 ```bash
 -XX:+UseParallelGC \
--XX:NewRatio=1 \
--XX:SurvivorRatio=6 \
 -Xms1536m \
 -Xmx1536m \
 -Xlog:gc*:file=/results/gc.log:time,uptime,level,tags:filecount=5,filesize=10m
@@ -273,12 +313,45 @@ Get-ChildItem results\summary-*.json | ForEach-Object {
 | Flag | Purpose |
 |------|---------|
 | `-XX:+UseParallelGC` | Use the parallel scavenge collector |
-| `-XX:NewRatio=1` | Young Gen = Old Gen (50/50 split) |
-| `-XX:SurvivorRatio=6` | Each survivor space = 1/6 of Young Gen |
 | `-Xms1536m -Xmx1536m` | Fixed heap at 1.5GB (leaves ~512MB for native) |
 | `-Xlog:gc*...` | GC logging with rotation (5 files × 10MB max) |
 
-### Scenario B: Generational ZGC
+> **Behavior**: The JVM uses default adaptive sizing (`UseAdaptiveSizePolicy` is on by default). It dynamically adjusts Eden/Survivor/Old generation sizes based on `MaxGCPauseMillis` (default 200ms) and `GCTimeRatio` (default 99). This often leads to the JVM shrinking Eden to meet pause goals, causing more frequent GC events.
+
+### Scenario B: ParallelGC (Production-Tuned)
+
+```bash
+-XX:+UseParallelGC \
+-XX:MaxGCPauseMillis=200 \
+-XX:GCTimeRatio=9 \
+-XX:SurvivorRatio=4 \
+-XX:ParallelGCThreads=2 \
+-XX:NewSize=650m \
+-XX:MaxNewSize=750m \
+-XX:-UseAdaptiveSizePolicy \
+-XX:MaxHeapFreeRatio=100 \
+-Xms1536m \
+-Xmx1536m \
+-Xlog:gc*:file=/results/gc.log:time,uptime,level,tags:filecount=5,filesize=10m
+```
+
+| Flag | Purpose |
+|------|---------|
+| `-XX:+UseParallelGC` | Use the parallel scavenge collector |
+| `-XX:MaxGCPauseMillis=200` | Target max GC pause of 200ms (hint to GC) |
+| `-XX:GCTimeRatio=9` | Target ~10% of time in GC (1/(1+9) = 10%) |
+| `-XX:SurvivorRatio=4` | Each survivor = 1/4 of young gen (larger survivors = less promotion) |
+| `-XX:ParallelGCThreads=2` | Match container CPU limit (2 cores) |
+| `-XX:NewSize=650m` | Fix minimum young gen to 650MB |
+| `-XX:MaxNewSize=750m` | Cap young gen at 750MB (~47% of 1536m heap) |
+| `-XX:-UseAdaptiveSizePolicy` | **Disable** adaptive sizing — prevents JVM from shrinking Eden |
+| `-XX:MaxHeapFreeRatio=100` | Don't shrink heap after GC (avoids unnecessary resize) |
+| `-Xms1536m -Xmx1536m` | Fixed heap at 1.5GB |
+| `-Xlog:gc*...` | GC logging with rotation |
+
+> **Why this matters**: In production, the default adaptive sizing caused the JVM to shrink Eden space to meet throughput/pause goals, resulting in more frequent minor GCs. By fixing the young gen size and disabling adaptive sizing, GC events became less frequent and response time dropped by ~50%. The `GCTimeRatio=9` (vs default 99) tells the JVM that spending up to 10% of time in GC is acceptable, which prevents it from over-tuning for throughput at the expense of latency.
+
+### Scenario C: Generational ZGC
 
 ```bash
 -XX:+UseZGC \
@@ -297,26 +370,30 @@ Get-ChildItem results\summary-*.json | ForEach-Object {
 
 ---
 
+## Further Reading
+
+📖 **[ParallelGC Optimization Journey →](docs/gc-optimization-journey.md)** — A real-world case study of GC tuning for a high-throughput BFF application. Covers 4 iterations of JVM parameter tuning, from 3-second Full GC pauses to halved response time. Includes detailed flag explanations, memory layout diagrams, and the reasoning behind each change.
+
+---
+
 ## Grafana Dashboards
 
 Two dashboards are auto-provisioned:
 
 ### BFF JVM Tuning - Comprehensive (recommended)
 
-16 panels in 4 rows:
+22 panels in 6 rows:
 
 | Row | Panels |
 |-----|--------|
-| **HTTP Latency & Throughput** | Latency percentiles (p50/p90/p95/p99), Requests/sec |
+| **HTTP Latency & Throughput** | Latency (avg/max + percentiles), Requests/sec |
 | **CPU & Memory** | CPU gauge, Heap by pool (Eden/Survivor/Old Gen stacked), Non-heap (Metaspace/CodeHeap) |
 | **GC Analysis** | GC pause time/s (Young vs Full), GC count rate, Allocation rate (Eden), Promotion rate (Old Gen) |
 | **Memory Pool Details** | Eden used vs max, Survivor used vs max, Old Gen used vs max, Thread count, Total heap used vs max |
+| **Threads & Heap** | Live threads, Total heap used vs committed |
+| **Outbound Connection Pool** | Active connections, Idle connections, Pending requests, Pool summary, Utilization % |
 
 Use the **`application` dropdown** at the top to switch between `bff-blocking`, `bff-reactive`, `bff-golang`.
-
-### BFF JVM Tuning Overview (original)
-
-9 panels covering HTTP latency, req/s, JVM heap, non-heap, GC pauses, GC count, threads, CPU.
 
 ---
 
@@ -334,10 +411,10 @@ GC logs are written in unified JVM logging format. Analyze them with:
 
 ```powershell
 # Quick summary of GC pauses
-Select-String "Pause" results\gc-blocking-parallelgc.log | Measure-Object -Line
+Select-String "Pause" results\gc-blocking-parallelgc-default.log | Measure-Object -Line
 
 # Find the longest pause
-Select-String "Pause Young" results\gc-blocking-parallelgc.log |
+Select-String "Pause Young" results\gc-blocking-parallelgc-default.log |
   ForEach-Object { $_.Line } | Sort-Object -Descending | Select-Object -First 5
 ```
 
@@ -356,6 +433,20 @@ Select-String "Pause Young" results\gc-blocking-parallelgc.log |
 ---
 
 ## Stopping & Cleanup
+
+### Switching SUT variants (between scenarios)
+
+To stop **only** the SUT container while keeping infrastructure (mock-backend, prometheus, grafana) running:
+
+```bash
+# Stop and remove only the SUT
+docker compose stop bff-blocking && docker compose rm -f bff-blocking
+
+# Then start the next variant
+docker compose --profile reactive up -d bff-reactive
+```
+
+> ⚠️ **Do NOT use `docker compose --profile blocking down`** between scenarios — it stops ALL containers including mock-backend, prometheus, and grafana. Use `docker compose stop <service>` instead.
 
 ### Stop everything (preserve data)
 
@@ -410,7 +501,7 @@ docker compose ps
 
 # 4. Run your next test
 docker compose --profile blocking up -d bff-blocking
-docker compose run --rm -e BASE_URL=http://bff-blocking:8080 -e SCENARIO_NAME=blocking-parallelgc k6 run --out json=/results/blocking-parallelgc.json /k6/stress-test.js
+docker compose run --rm -e BASE_URL=http://bff-blocking:8080 -e SCENARIO_NAME=blocking-parallelgc-default k6 run --out json=//results/blocking-parallelgc-default.json //k6/stress-test.js
 ```
 
 ---
